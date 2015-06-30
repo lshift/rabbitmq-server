@@ -142,7 +142,7 @@
   reply_consumer,
   %% flow | noflow, see rabbitmq-server#114
   delivery_flow,
-  intercept_in
+  interceptor_state
 }).
 
 
@@ -373,11 +373,11 @@ init([Channel, ReaderPid, WriterPid, ConnPid, ConnName, Protocol, User, VHost,
                 consumer_prefetch       = 0,
                 reply_consumer          = none,
                 delivery_flow           = Flow,
-                intercept_in            = undefined },
-    State1 = State #ch{ intercept_in = rabbit_channel_interceptor_new:init(State) },
+                interceptor_state       = undefined },
+    State1 = State #ch{ interceptor_state = rabbit_channel_interceptor_new:init(State) },
     State2 = rabbit_event:init_stats_timer(State1, #ch.stats_timer),
     rabbit_event:notify(channel_created, infos(?CREATION_EVENT_KEYS, State2)),
-    rabbit_event:if_enabled(State1, #ch.stats_timer,
+    rabbit_event:if_enabled(State2, #ch.stats_timer,
                             fun() -> emit_stats(State2) end),
     {ok, State2, hibernate,
      {backoff, ?HIBERNATE_AFTER_MIN, ?HIBERNATE_AFTER_MIN, ?DESIRED_HIBERNATE}}.
@@ -415,6 +415,7 @@ handle_call({info, Items}, _From, State) ->
     end;
 
 handle_call(refresh_config, _From, State = #ch{virtual_host = VHost}) ->
+    % TODO: re-init interceptor_state?
     reply(ok, State#ch{trace_state = rabbit_trace:init(VHost)});
 
 handle_call({declare_fast_reply_to, Key}, _From,
@@ -429,13 +430,14 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({method, Method, Content, Flow},
             State = #ch{reader_pid   = Reader,
-                        intercept_in = Intercept}) ->
+                        interceptor_state = IState}) ->
     case Flow of
         flow   -> credit_flow:ack(Reader);
         noflow -> ok
     end,
-    Method1 = apply(Intercept, [expand_shortcuts(Method, State)]),
-    try handle_method(Method1, Content, State) of
+    Method1 = expand_shortcuts(Method, State),
+    Method2 = rabbit_channel_interceptor_new:intercept_in(Method1, IState),
+    try handle_method(Method2, Content, State) of
         {reply, Reply, NewState} ->
             ok = send(Reply, NewState),
             noreply(NewState);
@@ -445,7 +447,7 @@ handle_cast({method, Method, Content, Flow},
             {stop, normal, State}
     catch
         exit:Reason = #amqp_error{} ->
-            MethodName = rabbit_misc:method_record_type(Method),
+            MethodName = rabbit_misc:method_record_type(Method2),
             handle_exception(Reason#amqp_error{method = MethodName}, State);
         _:Reason ->
             {stop, {Reason, erlang:get_stacktrace()}, State}
