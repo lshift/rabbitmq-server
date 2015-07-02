@@ -64,7 +64,7 @@
          prioritise_cast/3, prioritise_info/3, format_message_queue/2]).
 %% Internal
 -export([list_local/0, deliver_reply_local/3]).
--export([get_vhost/1]).
+-export([get_vhost/1, get_user/1]).
 
 -record(ch, {
   %% starting | running | flow | closing
@@ -436,8 +436,8 @@ handle_cast({method, Method, Content, Flow},
         noflow -> ok
     end,
     Method1 = expand_shortcuts(Method, State),
-    Method2 = rabbit_channel_interceptor_new:intercept_in(Method1, IState),
-    try handle_method(Method2, Content, State) of
+    {Method2, Content1} = rabbit_channel_interceptor_new:intercept_in(Method1, Content, IState),
+    try handle_method(Method2, Content1, State) of
         {reply, Reply, NewState} ->
             ok = send(Reply, NewState),
             noreply(NewState);
@@ -1986,3 +1986,5 @@ erase_queue_stats(QName) ->
         QName0 =:= QName].
 
 get_vhost(State = #ch { virtual_host = VHost }) -> VHost.
+
+get_user(State = #ch { user = User }) -> User.

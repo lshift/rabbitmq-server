@@ -3,42 +3,65 @@
 -include("rabbit_framing.hrl").
 -include("rabbit.hrl").
 
--export([init/1, intercept_in/2]).
+-export([init/1, intercept_in/3]).
 
 -define(OLD_REGISTRY_CLASS, channel_interceptor).
+-define(NEW_REGISTRY_CLASS, channel_interceptor_new).
+
+-ifdef(use_specs).
+
+% TODO: types
+-callback init(any) -> any.
+-callback intercept(any, any, any) -> any.
+-callback applies_to(any) -> any.
+
+-else.
+
+% TODO
+
+-endif.
 
 init(Ch) ->
-  {get_fn(Ch, hot), get_fn(Ch, cold)}.
+  R = (catch begin
+    Mods = lookup_all(?OLD_REGISTRY_CLASS) ++ lookup_all(?NEW_REGISTRY_CLASS),
+    {Hot, Cold} = lists:partition(fun ({_, M}) -> is_hot(M) end, Mods),
+    {to_fn(Hot, Ch), to_fn(Cold, Ch)}
+  end),
+  %io:format("R=~p~n", [R]),
+  R.
 
-get_fn(Ch, Temperature) ->
-  VHost = rabbit_channel:get_vhost(Ch),
-  Modules = [M || {_, M} <- rabbit_registry:lookup_all(?OLD_REGISTRY_CLASS),
-                  has_temperature(M, Temperature)],
-  io:format("modules for ~p = ~p~n", [Temperature, Modules]),
-  case Modules of
-    [] -> fun (Method) -> Method end;
-    [Module] -> fun (Method) -> Module:intercept(Method, VHost) end
+lookup_all(Class) ->
+  [{Class, M} || {_, M} <- rabbit_registry:lookup_all(Class)].
+
+to_fn(Mods, Ch) ->
+  case Mods of
+    [] -> fun(M, C) -> {M, C} end;
+    [Mod] -> to_fn1(Mod, Ch)
   end.
 
-has_temperature(M, hot) ->
-  io:format("has_temperature ~p~n", [M]),
+to_fn1({channel_interceptor, Mod}, Ch) ->
+  VHost = rabbit_channel:get_vhost(Ch),
+  fun (M, C) -> {Mod:intercept(M, VHost), C} end;
+
+to_fn1({channel_interceptor_new, Mod}, Ch) ->
+  St = Mod:init(Ch),
+  fun (M, C) -> Mod:intercept(M, C, St) end.
+
+is_hot(M) ->
   M:applies_to('basic.publish') orelse
   M:applies_to('basic.ack') orelse
   M:applies_to('basic.nack') orelse
   M:applies_to('basic.reject') orelse
-  M:applies_to('basic.credit');
+  M:applies_to('basic.credit').
 
-has_temperature(M, cold) ->
-  not has_temperature(M, hot).
+intercept_in(#'basic.publish'{} = M, C, S) -> intercept_in_hot(M, C, S);
+intercept_in(#'basic.ack'{} = M, C, S) -> intercept_in_hot(M, C, S);
+intercept_in(#'basic.nack'{} = M, C, S) -> intercept_in_hot(M, C, S);
+intercept_in(#'basic.reject'{} = M, C, S) -> intercept_in_hot(M, C, S);
+intercept_in(#'basic.credit'{} = M, C, S) -> intercept_in_hot(M, C, S);
+intercept_in(M, C, S) -> intercept_in_cold(M, C, S).
 
-intercept_in(#'basic.publish'{} = M, S) -> intercept_in_hot(M, S);
-intercept_in(#'basic.ack'{} = M, S) -> intercept_in_hot(M, S);
-intercept_in(#'basic.nack'{} = M, S) -> intercept_in_hot(M, S);
-intercept_in(#'basic.reject'{} = M, S) -> intercept_in_hot(M, S);
-intercept_in(#'basic.credit'{} = M, S) -> intercept_in_hot(M, S);
-intercept_in(M, S) -> intercept_in_cold(M, S).
+intercept_in_hot(M, C, {Hot, _}) -> apply(Hot, [M, C]).
 
-intercept_in_hot(M, {Hot, _}) -> apply(Hot, [M]).
-
-intercept_in_cold(M, {_, Cold}) -> apply(Cold, [M]).
+intercept_in_cold(M, C, {_, Cold}) -> apply(Cold, [M, C]).
 
