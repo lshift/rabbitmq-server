@@ -415,7 +415,6 @@ handle_call({info, Items}, _From, State) ->
     end;
 
 handle_call(refresh_config, _From, State = #ch{virtual_host = VHost}) ->
-    % TODO: re-init interceptor_state?
     reply(ok, State#ch{trace_state = rabbit_trace:init(VHost)});
 
 handle_call({declare_fast_reply_to, Key}, _From,
