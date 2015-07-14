@@ -185,6 +185,10 @@
 
 -type(channel_number() :: non_neg_integer()).
 
+-export_type([channel/0]).
+
+-type(channel() :: #ch{}).
+
 -spec(start_link/11 ::
         (channel_number(), pid(), pid(), pid(), string(),
          rabbit_types:protocol(), rabbit_types:user(), rabbit_types:vhost(),

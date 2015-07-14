@@ -10,10 +10,18 @@
 
 -ifdef(use_specs).
 
-% TODO: types
--callback init(any) -> any.
--callback intercept(any, any, any) -> any.
--callback applies_to(any) -> any.
+-type(method_name() :: rabbit_framing:amqp_method_name()).
+-type(original_method() :: rabbit_framing:amqp_method_record()).
+-type(processed_method() :: rabbit_framing:amqp_method_record()).
+-type(original_content() :: rabbit_types:content()).
+-type(processed_content() :: rabbit_types:content()).
+
+% Derive some initial state from the channel. This will be passed back
+% as the third argument of intercept/3.
+-callback init(rabbit_channel:channel()) -> any.
+-callback intercept(original_method(), original_content(), any) ->
+    {processed_method(), processed_content()} | rabbit_misc:channel_or_connection_exit().
+-callback applies_to(method_name()) -> boolean().
 
 -else.
 
