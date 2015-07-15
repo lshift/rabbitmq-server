@@ -46,8 +46,7 @@ init(Ch) ->
   R = (catch begin
     Mods = [M || {_, M} <- rabbit_registry:lookup_all(channel_interceptor)],
     check_no_overlap(Mods),
-    {Hot, Cold} = lists:partition(fun is_hot/1, Mods),
-    {to_fn(Hot, Ch), to_fn(Cold, Ch)}
+    to_fn(Mods, Ch)
   end),
   %io:format("R=~p~n", [R]),
   R.
@@ -91,18 +90,11 @@ check_no_overlap1(Sets) ->
               Sets),
   ok.
 
-is_hot(M) ->
-  HotMethods = sets:from_list(['basic.publish', 'basic.ack', 'basic.nack',
-                               'basic.reject', 'basic.credit']),
-  sets:size(sets:intersection(HotMethods, sets:from_list(M:applies_to()))) > 0.
+intercept_in(#'basic.publish'{} = M, C, S) -> intercept_in1(M, C, S);
+intercept_in(#'basic.ack'{} = M, C, S) -> intercept_in1(M, C, S);
+intercept_in(#'basic.nack'{} = M, C, S) -> intercept_in1(M, C, S);
+intercept_in(#'basic.reject'{} = M, C, S) -> intercept_in1(M, C, S);
+intercept_in(#'basic.credit'{} = M, C, S) -> intercept_in1(M, C, S);
+intercept_in(M, C, S) -> intercept_in1(M, C, S).
 
-intercept_in(#'basic.publish'{} = M, C, S) -> intercept_in_hot(M, C, S);
-intercept_in(#'basic.ack'{} = M, C, S) -> intercept_in_hot(M, C, S);
-intercept_in(#'basic.nack'{} = M, C, S) -> intercept_in_hot(M, C, S);
-intercept_in(#'basic.reject'{} = M, C, S) -> intercept_in_hot(M, C, S);
-intercept_in(#'basic.credit'{} = M, C, S) -> intercept_in_hot(M, C, S);
-intercept_in(M, C, S) -> intercept_in_cold(M, C, S).
-
-intercept_in_hot(M, C, {Hot, _}) -> apply(Hot, [M, C]).
-
-intercept_in_cold(M, C, {_, Cold}) -> apply(Cold, [M, C]).
+intercept_in1(M, C, Fn) -> Fn(M, C).
