@@ -79,7 +79,15 @@ to_fn1(Mod, Ch) ->
   fun (M, C) ->
       % this little dance is because Mod might be unloaded at any point
       case (catch {ok, Mod:intercept(M, C, St)}) of
-        {ok, R} -> R;
+        {ok, R = {M2, _}} ->
+          case validate_method(M, M2) of
+            true -> R;
+            _ ->
+              internal_error("Interceptor: ~p expected "
+                                  "to return method: ~p but returned: ~p",
+                                  [Mod, rabbit_misc:method_record_type(M),
+                                   rabbit_misc:method_record_type(M2)])
+          end;
         {'EXIT', {undef, [{Mod, intercept, _, _} | _]}} -> {M, C}
       end
   end.
@@ -89,7 +97,13 @@ check_no_overlap(Mods) ->
 
 check_no_overlap1(Sets) ->
   lists:foldl(fun(Set, Union) ->
-                  0 = sets:size(sets:intersection(Set, Union)),
+                  Is = sets:intersection(Set, Union),
+                  case sets:size(Is) of
+                    0 -> ok;
+                    _ ->
+                      internal_error("Interceptor: more than one "
+                                          "module handles ~p~n", [Is])
+                  end,
                   sets:union(Set, Union)
               end,
               sets:new(),
@@ -104,3 +118,11 @@ intercept_in(#'basic.credit'{} = M, C, S) -> intercept_in1(M, C, S);
 intercept_in(M, C, S) -> intercept_in1(M, C, S).
 
 intercept_in1(M, C, Fn) -> Fn(M, C).
+
+validate_method(M, M2) ->
+    rabbit_misc:method_record_type(M) =:= rabbit_misc:method_record_type(M2).
+
+%% keep dialyzer happy
+-spec internal_error(string(), [any()]) -> no_return().
+internal_error(Format, Args) ->
+    rabbit_misc:protocol_error(internal_error, Format, Args).
