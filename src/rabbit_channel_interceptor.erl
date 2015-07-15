@@ -29,6 +29,7 @@
 -type(original_content() :: rabbit_types:content()).
 -type(processed_content() :: rabbit_types:content()).
 
+-callback description() -> [proplists:property()].
 % Derive some initial state from the channel. This will be passed back
 % as the third argument of intercept/3.
 -callback init(rabbit_channel:channel()) -> any.
@@ -38,7 +39,12 @@
 
 -else.
 
-% TODO
+-export([behaviour_info/1]).
+
+behaviour_info(callbacks) ->
+    [{description, 0}, {init, 1}, {intercept, 3}, {applies_to, 0}];
+behaviour_info(_Other) ->
+    undefined.
 
 -endif.
 
