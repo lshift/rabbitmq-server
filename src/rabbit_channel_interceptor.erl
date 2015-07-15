@@ -71,7 +71,13 @@ to_fn(Mods, Ch) ->
 
 to_fn1(Mod, Ch) ->
   St = Mod:init(Ch),
-  fun (M, C) -> Mod:intercept(M, C, St) end.
+  fun (M, C) ->
+      % this little dance is because Mod might be unloaded at any point
+      case (catch {ok, Mod:intercept(M, C, St)}) of
+        {ok, R} -> R;
+        {'EXIT', {undef, [{Mod, intercept, _, _} | _]}} -> {M, C}
+      end
+  end.
 
 check_no_overlap(Mods) ->
   check_no_overlap1([sets:from_list(Mod:applies_to()) || Mod <- Mods]).
@@ -100,4 +106,3 @@ intercept_in(M, C, S) -> intercept_in_cold(M, C, S).
 intercept_in_hot(M, C, {Hot, _}) -> apply(Hot, [M, C]).
 
 intercept_in_cold(M, C, {_, Cold}) -> apply(Cold, [M, C]).
-
