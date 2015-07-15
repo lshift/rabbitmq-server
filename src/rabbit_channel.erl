@@ -378,7 +378,7 @@ init([Channel, ReaderPid, WriterPid, ConnPid, ConnName, Protocol, User, VHost,
                 reply_consumer          = none,
                 delivery_flow           = Flow,
                 interceptor_state       = undefined },
-    State1 = State #ch{ interceptor_state = rabbit_channel_interceptor_new:init(State) },
+    State1 = State #ch{ interceptor_state = rabbit_channel_interceptor:init(State) },
     State2 = rabbit_event:init_stats_timer(State1, #ch.stats_timer),
     rabbit_event:notify(channel_created, infos(?CREATION_EVENT_KEYS, State2)),
     rabbit_event:if_enabled(State2, #ch.stats_timer,
@@ -439,7 +439,7 @@ handle_cast({method, Method, Content, Flow},
         noflow -> ok
     end,
     Method1 = expand_shortcuts(Method, State),
-    {Method2, Content1} = rabbit_channel_interceptor_new:intercept_in(Method1, Content, IState),
+    {Method2, Content1} = rabbit_channel_interceptor:intercept_in(Method1, Content, IState),
     try handle_method(Method2, Content1, State) of
         {reply, Reply, NewState} ->
             ok = send(Reply, NewState),

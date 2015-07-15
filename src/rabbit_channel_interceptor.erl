@@ -1,91 +1,87 @@
-%% The contents of this file are subject to the Mozilla Public License
-%% Version 1.1 (the "License"); you may not use this file except in
-%% compliance with the License. You may obtain a copy of the License
-%% at http://www.mozilla.org/MPL/
-%%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and
-%% limitations under the License.
-%%
-%% The Original Code is RabbitMQ.
-%%
-%% The Initial Developer of the Original Code is GoPivotal, Inc.
-%% Copyright (c) 2007-2015 Pivotal Software, Inc.  All rights reserved.
-%%
-
-%% Since the AMQP methods used here are queue related,
-%% maybe we want this to be a queue_interceptor.
-
 -module(rabbit_channel_interceptor).
 
 -include("rabbit_framing.hrl").
 -include("rabbit.hrl").
 
--export([intercept_method/2]).
+-export([init/1, intercept_in/3]).
 
 -ifdef(use_specs).
 
--type(intercept_method() :: rabbit_framing:amqp_method_name()).
+-type(method_name() :: rabbit_framing:amqp_method_name()).
 -type(original_method() :: rabbit_framing:amqp_method_record()).
 -type(processed_method() :: rabbit_framing:amqp_method_record()).
+-type(original_content() :: rabbit_types:content()).
+-type(processed_content() :: rabbit_types:content()).
 
--callback description() -> [proplists:property()].
-
--callback intercept(original_method(), rabbit_types:vhost()) ->
-    processed_method() | rabbit_misc:channel_or_connection_exit().
-
-%% Whether the interceptor wishes to intercept the amqp method
--callback applies_to(intercept_method()) -> boolean().
+% Derive some initial state from the channel. This will be passed back
+% as the third argument of intercept/3.
+-callback init(rabbit_channel:channel()) -> any.
+-callback intercept(original_method(), original_content(), any) ->
+    {processed_method(), processed_content()} | rabbit_misc:channel_or_connection_exit().
+-callback applies_to() -> list(method_name()).
 
 -else.
 
--export([behaviour_info/1]).
-
-behaviour_info(callbacks) ->
-    [{description, 0}, {intercept, 2}, {applies_to, 1}];
-behaviour_info(_Other) ->
-    undefined.
+% TODO
 
 -endif.
 
-%%----------------------------------------------------------------------------
+init(Ch) ->
+  R = (catch begin
+    Mods = [M || {_, M} <- rabbit_registry:lookup_all(channel_interceptor)],
+    check_no_overlap(Mods),
+    {Hot, Cold} = lists:partition(fun is_hot/1, Mods),
+    {to_fn(Hot, Ch), to_fn(Cold, Ch)}
+  end),
+  %io:format("R=~p~n", [R]),
+  R.
 
-intercept_method(#'basic.publish'{} = M, _VHost) -> M;
-intercept_method(#'basic.ack'{}     = M, _VHost) -> M;
-intercept_method(#'basic.nack'{}    = M, _VHost) -> M;
-intercept_method(#'basic.reject'{}  = M, _VHost) -> M;
-intercept_method(#'basic.credit'{}  = M, _VHost) -> M;
-intercept_method(M, VHost) ->
-    intercept_method(M, VHost, select(rabbit_misc:method_record_type(M))).
+% Turn a list of interceptor modules into a single function
 
-intercept_method(M, _VHost, []) ->
-    M;
-intercept_method(M, VHost, [I]) ->
-    M2 = I:intercept(M, VHost),
-    case validate_method(M, M2) of
-        true ->
-            M2;
-        _   ->
-            internal_error("Interceptor: ~p expected "
-                                "to return method: ~p but returned: ~p",
-                                [I, rabbit_misc:method_record_type(M),
-                                 rabbit_misc:method_record_type(M2)])
-    end;
-intercept_method(M, _VHost, Is) ->
-    internal_error("More than one interceptor for method: ~p -- ~p",
-                   [rabbit_misc:method_record_type(M), Is]).
+to_fn(Mods, Ch) ->
+  case Mods of
+    [] -> fun(M, C) -> {M, C} end;
+    [Mod] -> to_fn1(Mod, Ch);
+    [Mod|Mods1] ->
+      Fn1 = to_fn1(Mod, Ch),
+      Fn2 = to_fn(Mods1, Ch),
+      fun(M, C) ->
+          {M1, C1} = Fn1(M, C),
+          Fn2(M1, C1)
+      end
+  end.
 
-%% select the interceptors that apply to intercept_method().
-select(Method)  ->
-    [M || {_, M} <- rabbit_registry:lookup_all(channel_interceptor),
-          code:which(M) =/= non_existing,
-          M:applies_to(Method)].
+% Turn a single interceptor module into a function
 
-validate_method(M, M2) ->
-    rabbit_misc:method_record_type(M) =:= rabbit_misc:method_record_type(M2).
+to_fn1(Mod, Ch) ->
+  St = Mod:init(Ch),
+  fun (M, C) -> Mod:intercept(M, C, St) end.
 
-%% keep dialyzer happy
--spec internal_error(string(), [any()]) -> no_return().
-internal_error(Format, Args) ->
-    rabbit_misc:protocol_error(internal_error, Format, Args).
+check_no_overlap(Mods) ->
+  check_no_overlap1([sets:from_list(Mod:applies_to()) || Mod <- Mods]).
+
+check_no_overlap1(Sets) ->
+  lists:foldl(fun(Set, Union) ->
+                  0 = sets:size(sets:intersection(Set, Union)),
+                  sets:union(Set, Union)
+              end,
+              sets:new(),
+              Sets),
+  ok.
+
+is_hot(M) ->
+  HotMethods = sets:from_list(['basic.publish', 'basic.ack', 'basic.nack',
+                               'basic.reject', 'basic.credit']),
+  sets:size(sets:intersection(HotMethods, sets:from_list(M:applies_to()))) > 0.
+
+intercept_in(#'basic.publish'{} = M, C, S) -> intercept_in_hot(M, C, S);
+intercept_in(#'basic.ack'{} = M, C, S) -> intercept_in_hot(M, C, S);
+intercept_in(#'basic.nack'{} = M, C, S) -> intercept_in_hot(M, C, S);
+intercept_in(#'basic.reject'{} = M, C, S) -> intercept_in_hot(M, C, S);
+intercept_in(#'basic.credit'{} = M, C, S) -> intercept_in_hot(M, C, S);
+intercept_in(M, C, S) -> intercept_in_cold(M, C, S).
+
+intercept_in_hot(M, C, {Hot, _}) -> apply(Hot, [M, C]).
+
+intercept_in_cold(M, C, {_, Cold}) -> apply(Cold, [M, C]).
+

@@ -133,8 +133,7 @@ class_module(exchange_decorator)  -> rabbit_exchange_decorator;
 class_module(queue_decorator)     -> rabbit_queue_decorator;
 class_module(policy_validator)    -> rabbit_policy_validator;
 class_module(ha_mode)             -> rabbit_mirror_queue_mode;
-class_module(channel_interceptor) -> rabbit_channel_interceptor;
-class_module(channel_interceptor_new) -> rabbit_channel_interceptor_new.
+class_module(channel_interceptor) -> rabbit_channel_interceptor.
 
 %%---------------------------------------------------------------------------
 
