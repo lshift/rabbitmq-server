@@ -377,8 +377,8 @@ init([Channel, ReaderPid, WriterPid, ConnPid, ConnName, Protocol, User, VHost,
                 consumer_prefetch       = 0,
                 reply_consumer          = none,
                 delivery_flow           = Flow,
-                interceptor_state       = undefined },
-    State1 = State #ch{ interceptor_state = rabbit_channel_interceptor:init(State) },
+                interceptor_state       = undefined},
+    State1 = State#ch{interceptor_state = rabbit_channel_interceptor:init(State)},
     State2 = rabbit_event:init_stats_timer(State1, #ch.stats_timer),
     rabbit_event:notify(channel_created, infos(?CREATION_EVENT_KEYS, State2)),
     rabbit_event:if_enabled(State2, #ch.stats_timer,
@@ -1988,6 +1988,6 @@ erase_queue_stats(QName) ->
         {{queue_exchange_stats, QX = {QName0, _}}, _} <- get(),
         QName0 =:= QName].
 
-get_vhost(State = #ch { virtual_host = VHost }) -> VHost.
+get_vhost(State = #ch{virtual_host = VHost}) -> VHost.
 
-get_user(State = #ch { user = User }) -> User.
+get_user(State = #ch{user = User}) -> User.
