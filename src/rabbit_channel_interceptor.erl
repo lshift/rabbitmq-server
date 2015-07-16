@@ -51,40 +51,7 @@ behaviour_info(_Other) ->
 init(Ch) ->
     Mods = [M || {_, M} <- rabbit_registry:lookup_all(channel_interceptor)],
     check_no_overlap(Mods),
-    to_fn(Mods, Ch).
-
-%% Turn a list of interceptor modules into a single function
-to_fn(Mods, Ch) ->
-    case Mods of
-        [] -> fun(M, C) -> {M, C} end;
-        [Mod] -> to_fn1(Mod, Ch);
-        [Mod|Mods1] ->
-            Fn1 = to_fn1(Mod, Ch),
-            Fn2 = to_fn(Mods1, Ch),
-            fun(M, C) ->
-                {M1, C1} = Fn1(M, C),
-                Fn2(M1, C1)
-            end
-    end.
-
-%% Turn a single interceptor module into a function
-to_fn1(Mod, Ch) ->
-    St = Mod:init(Ch),
-    fun (M, C) ->
-        % this little dance is because Mod might be unloaded at any point
-        case (catch {ok, Mod:intercept(M, C, St)}) of
-            {ok, R = {M2, _}} ->
-                case validate_method(M, M2) of
-                    true -> R;
-                    _ ->
-                        internal_error("Interceptor: ~p expected to return "
-                                            "method: ~p but returned: ~p",
-                                       [Mod, rabbit_misc:method_record_type(M),
-                                        rabbit_misc:method_record_type(M2)])
-                end;
-            {'EXIT', {undef, [{Mod, intercept, _, _} | _]}} -> {M, C}
-        end
-    end.
+    [{Mod, Mod:init(Ch)} || Mod <- Mods].
 
 check_no_overlap(Mods) ->
     check_no_overlap1([sets:from_list(Mod:applies_to()) || Mod <- Mods]).
@@ -105,14 +72,27 @@ check_no_overlap1(Sets) ->
                 Sets),
     ok.
 
-intercept_in(#'basic.publish'{} = M, C, S) -> intercept_in1(M, C, S);
-intercept_in(#'basic.ack'{} = M, C, S) -> intercept_in1(M, C, S);
-intercept_in(#'basic.nack'{} = M, C, S) -> intercept_in1(M, C, S);
-intercept_in(#'basic.reject'{} = M, C, S) -> intercept_in1(M, C, S);
-intercept_in(#'basic.credit'{} = M, C, S) -> intercept_in1(M, C, S);
-intercept_in(M, C, S) -> intercept_in1(M, C, S).
+intercept_in(M, C, Mods) ->
+  lists:foldl(fun({Mod, ModState}, {M1, C1}) ->
+                  call_module(Mod, ModState, M1, C1)
+              end,
+              {M, C},
+              Mods).
 
-intercept_in1(M, C, Fn) -> Fn(M, C).
+call_module(Mod, St, M, C) ->
+    % this little dance is because Mod might be unloaded at any point
+    case (catch {ok, Mod:intercept(M, C, St)}) of
+        {ok, R = {M2, _}} ->
+            case validate_method(M, M2) of
+                true -> R;
+                _ ->
+                    internal_error("Interceptor: ~p expected to return "
+                                        "method: ~p but returned: ~p",
+                                   [Mod, rabbit_misc:method_record_type(M),
+                                    rabbit_misc:method_record_type(M2)])
+            end;
+        {'EXIT', {undef, [{Mod, intercept, _, _} | _]}} -> {M, C}
+    end.
 
 validate_method(M, M2) ->
     rabbit_misc:method_record_type(M) =:= rabbit_misc:method_record_type(M2).
