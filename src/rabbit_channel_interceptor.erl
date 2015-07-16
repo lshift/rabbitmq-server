@@ -30,8 +30,8 @@
 -type(processed_content() :: rabbit_types:content()).
 
 -callback description() -> [proplists:property()].
-% Derive some initial state from the channel. This will be passed back
-% as the third argument of intercept/3.
+%% Derive some initial state from the channel. This will be passed back
+%% as the third argument of intercept/3.
 -callback init(rabbit_channel:channel()) -> any.
 -callback intercept(original_method(), original_content(), any) ->
     {processed_method(), processed_content()} | rabbit_misc:channel_or_connection_exit().
@@ -49,66 +49,61 @@ behaviour_info(_Other) ->
 -endif.
 
 init(Ch) ->
-  R = (catch begin
     Mods = [M || {_, M} <- rabbit_registry:lookup_all(channel_interceptor)],
     check_no_overlap(Mods),
-    to_fn(Mods, Ch)
-  end),
-  %io:format("R=~p~n", [R]),
-  R.
+    to_fn(Mods, Ch).
 
-% Turn a list of interceptor modules into a single function
-
+%% Turn a list of interceptor modules into a single function
 to_fn(Mods, Ch) ->
-  case Mods of
-    [] -> fun(M, C) -> {M, C} end;
-    [Mod] -> to_fn1(Mod, Ch);
-    [Mod|Mods1] ->
-      Fn1 = to_fn1(Mod, Ch),
-      Fn2 = to_fn(Mods1, Ch),
-      fun(M, C) ->
-          {M1, C1} = Fn1(M, C),
-          Fn2(M1, C1)
-      end
-  end.
+    case Mods of
+        [] -> fun(M, C) -> {M, C} end;
+        [Mod] -> to_fn1(Mod, Ch);
+        [Mod|Mods1] ->
+            Fn1 = to_fn1(Mod, Ch),
+            Fn2 = to_fn(Mods1, Ch),
+            fun(M, C) ->
+                {M1, C1} = Fn1(M, C),
+                Fn2(M1, C1)
+            end
+    end.
 
-% Turn a single interceptor module into a function
-
+%% Turn a single interceptor module into a function
 to_fn1(Mod, Ch) ->
-  St = Mod:init(Ch),
-  fun (M, C) ->
-      % this little dance is because Mod might be unloaded at any point
-      case (catch {ok, Mod:intercept(M, C, St)}) of
-        {ok, R = {M2, _}} ->
-          case validate_method(M, M2) of
-            true -> R;
-            _ ->
-              internal_error("Interceptor: ~p expected "
-                                  "to return method: ~p but returned: ~p",
-                                  [Mod, rabbit_misc:method_record_type(M),
-                                   rabbit_misc:method_record_type(M2)])
-          end;
-        {'EXIT', {undef, [{Mod, intercept, _, _} | _]}} -> {M, C}
-      end
-  end.
+    St = Mod:init(Ch),
+    fun (M, C) ->
+        % this little dance is because Mod might be unloaded at any point
+        case (catch {ok, Mod:intercept(M, C, St)}) of
+            {ok, R = {M2, _}} ->
+                case validate_method(M, M2) of
+                    true -> R;
+                    _ ->
+                        internal_error("Interceptor: ~p expected to return "
+                                            "method: ~p but returned: ~p",
+                                       [Mod, rabbit_misc:method_record_type(M),
+                                        rabbit_misc:method_record_type(M2)])
+                end;
+            {'EXIT', {undef, [{Mod, intercept, _, _} | _]}} -> {M, C}
+        end
+    end.
 
 check_no_overlap(Mods) ->
-  check_no_overlap1([sets:from_list(Mod:applies_to()) || Mod <- Mods]).
+    check_no_overlap1([sets:from_list(Mod:applies_to()) || Mod <- Mods]).
 
+%% Check no non-empty pairwise intersection in a list of sets
 check_no_overlap1(Sets) ->
-  lists:foldl(fun(Set, Union) ->
-                  Is = sets:intersection(Set, Union),
-                  case sets:size(Is) of
-                    0 -> ok;
-                    _ ->
-                      internal_error("Interceptor: more than one "
-                                          "module handles ~p~n", [Is])
-                  end,
-                  sets:union(Set, Union)
-              end,
-              sets:new(),
-              Sets),
-  ok.
+    lists:foldl(fun(Set, Union) ->
+                    Is = sets:intersection(Set, Union),
+                    case sets:size(Is) of
+                      0 -> ok;
+                      _ ->
+                        internal_error("Interceptor: more than one "
+                                            "module handles ~p~n", [Is])
+                    end,
+                    sets:union(Set, Union)
+                end,
+                sets:new(),
+                Sets),
+    ok.
 
 intercept_in(#'basic.publish'{} = M, C, S) -> intercept_in1(M, C, S);
 intercept_in(#'basic.ack'{} = M, C, S) -> intercept_in1(M, C, S);
