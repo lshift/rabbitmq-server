@@ -94,10 +94,10 @@ check_no_overlap1(Sets) ->
     lists:foldl(fun(Set, Union) ->
                     Is = sets:intersection(Set, Union),
                     case sets:size(Is) of
-                      0 -> ok;
-                      _ ->
-                        internal_error("Interceptor: more than one "
-                                            "module handles ~p~n", [Is])
+                        0 -> ok;
+                        _ ->
+                          internal_error("Interceptor: more than one "
+                                              "module handles ~p~n", [Is])
                     end,
                     sets:union(Set, Union)
                 end,
