@@ -26,8 +26,8 @@
 -type(method_name() :: rabbit_framing:amqp_method_name()).
 -type(original_method() :: rabbit_framing:amqp_method_record()).
 -type(processed_method() :: rabbit_framing:amqp_method_record()).
--type(original_content() :: rabbit_types:content()).
--type(processed_content() :: rabbit_types:content()).
+-type(original_content() :: rabbit_types:maybe(rabbit_types:content())).
+-type(processed_content() :: rabbit_types:maybe(rabbit_types:content())).
 
 -callback description() -> [proplists:property()].
 %% Derive some initial state from the channel. This will be passed back
@@ -82,20 +82,31 @@ intercept_in(M, C, Mods) ->
 call_module(Mod, St, M, C) ->
     % this little dance is because Mod might be unloaded at any point
     case (catch {ok, Mod:intercept(M, C, St)}) of
-        {ok, R = {M2, _}} ->
-            case validate_method(M, M2) of
-                true -> R;
-                _ ->
-                    internal_error("Interceptor: ~p expected to return "
-                                        "method: ~p but returned: ~p",
-                                   [Mod, rabbit_misc:method_record_type(M),
-                                    rabbit_misc:method_record_type(M2)])
-            end;
+        {ok, R} -> validate_response(Mod, M, C, R);
         {'EXIT', {undef, [{Mod, intercept, _, _} | _]}} -> {M, C}
+    end.
+
+validate_response(Mod, M1, C1, R = {M2, C2}) ->
+    case {validate_method(M1, M2), validate_content(C1, C2)} of
+        {true, true} -> R;
+        {false, _} ->
+            internal_error("Interceptor: ~p expected to return "
+                                "method: ~p but returned: ~p",
+                           [Mod, rabbit_misc:method_record_type(M1),
+                            rabbit_misc:method_record_type(M2)]);
+        {_, false} ->
+            internal_error("Interceptor: ~p expected to return "
+                                "content iff content is provided but "
+                                "content in = ~p; content out = ~p",
+                           [Mod, C1, C2])
     end.
 
 validate_method(M, M2) ->
     rabbit_misc:method_record_type(M) =:= rabbit_misc:method_record_type(M2).
+
+validate_content(none, none) -> true;
+validate_content(#content{}, #content{}) -> true;
+validate_content(_, _) -> false.
 
 %% keep dialyzer happy
 -spec internal_error(string(), [any()]) -> no_return().
