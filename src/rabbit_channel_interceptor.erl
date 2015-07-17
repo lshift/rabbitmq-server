@@ -63,9 +63,9 @@ check_no_overlap1(Sets) ->
                     case sets:size(Is) of
                         0 -> ok;
                         _ ->
-                          internal_error("Interceptor: more than one "
-                                              "module handles ~p~n", [Is])
-                    end,
+                            internal_error("Interceptor: more than one "
+                                                "module handles ~p~n", [Is])
+                      end,
                     sets:union(Set, Union)
                 end,
                 sets:new(),
@@ -73,11 +73,11 @@ check_no_overlap1(Sets) ->
     ok.
 
 intercept_in(M, C, Mods) ->
-  lists:foldl(fun({Mod, ModState}, {M1, C1}) ->
-                  call_module(Mod, ModState, M1, C1)
-              end,
-              {M, C},
-              Mods).
+    lists:foldl(fun({Mod, ModState}, {M1, C1}) ->
+                    call_module(Mod, ModState, M1, C1)
+                end,
+                {M, C},
+                Mods).
 
 call_module(Mod, St, M, C) ->
     % this little dance is because Mod might be unloaded at any point
