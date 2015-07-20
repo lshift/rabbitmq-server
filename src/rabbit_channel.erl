@@ -1988,6 +1988,6 @@ erase_queue_stats(QName) ->
         {{queue_exchange_stats, QX = {QName0, _}}, _} <- get(),
         QName0 =:= QName].
 
-get_vhost(State = #ch{virtual_host = VHost}) -> VHost.
+get_vhost(#ch{virtual_host = VHost}) -> VHost.
 
-get_user(State = #ch{user = User}) -> User.
+get_user(#ch{user = User}) -> User.
