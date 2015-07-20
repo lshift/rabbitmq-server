@@ -28,12 +28,13 @@
 -type(processed_method() :: rabbit_framing:amqp_method_record()).
 -type(original_content() :: rabbit_types:maybe(rabbit_types:content())).
 -type(processed_content() :: rabbit_types:maybe(rabbit_types:content())).
+-type(interceptor_state() :: term()).
 
 -callback description() -> [proplists:property()].
 %% Derive some initial state from the channel. This will be passed back
 %% as the third argument of intercept/3.
--callback init(rabbit_channel:channel()) -> any.
--callback intercept(original_method(), original_content(), any) ->
+-callback init(rabbit_channel:channel()) -> interceptor_state().
+-callback intercept(original_method(), original_content(), interceptor_state()) ->
     {processed_method(), processed_content()} | rabbit_misc:channel_or_connection_exit().
 -callback applies_to() -> list(method_name()).
 
